@@ -360,3 +360,64 @@ class WatchClient:
             
         return alarms
 
+    async def write_alarms(self, alarms: list):
+        """Upload the entire alarm set to the watch (bulk sync)."""
+        # Payload: [0x02, Total, Beans...]
+        payload = bytearray([0x02, len(alarms) & 0xFF])
+        
+        for a in alarms:
+            label_bytes = (a.get("label", "") or "").encode("utf-8")
+            length = len(label_bytes) + 4
+            
+            repeat_enable = (a.get("week_mask", 0x7F) & 0x7F)
+            if a.get("enabled", True):
+                repeat_enable |= 0x80
+                
+            total_minutes = (a["hour"] * 60) + a["minute"]
+            
+            payload.append(length & 0xFF)
+            payload.append(repeat_enable & 0xFF)
+            payload.append(total_minutes & 0xFF)
+            payload.append((total_minutes >> 8) & 0xFF)
+            payload.extend(label_bytes)
+            
+        await self._send(protocol.Packet(
+            is_large_data=True,
+            action_id=protocol.ActionID.ALARM,
+            payload=bytes(payload)
+        ))
+
+    async def get_alarm(self, index: int):
+        """Read an alarm by its list index (wrapper for bulk sync)."""
+        alarms = await self.sync_alarms()
+        if 0 <= index < len(alarms):
+            res = alarms[index]
+            res["index"] = index
+            return res
+        return None
+
+    async def get_all_alarms(self):
+        """Wrapper for sync_alarms."""
+        return await self.sync_alarms()
+
+    async def set_alarm(self, index: int, enabled: bool, hour: int, minute: int, week_mask: int = 0x7F, label: str = ""):
+        """Configure alarm via Read-Modify-Write (bulk sync)."""
+        alarms = await self.sync_alarms()
+        
+        # If index exists, update it. If not, pad or append.
+        new_alarm = {
+            "enabled": enabled,
+            "hour": hour,
+            "minute": minute,
+            "week_mask": week_mask,
+            "label": label
+        }
+        
+        if index < len(alarms):
+            alarms[index] = new_alarm
+        else:
+            # Append if it's the next index, or just push
+            alarms.append(new_alarm)
+            
+        await self.write_alarms(alarms)
+
