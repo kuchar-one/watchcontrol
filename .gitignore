@@ -12,3 +12,7 @@ wheels/
 apk_decompiled/
 apk_source/
 *.apk
+
+# Watch control specifics
+.watch_address
+scratch/
