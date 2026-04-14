@@ -421,3 +421,77 @@ class WatchClient:
             
         await self.write_alarms(alarms)
 
+    async def measure_heart_rate(self, duration: float = 60, debug: bool = False):
+        """
+        Trigger heart rate measurement and stream real-time results.
+        Uses a background task to ensure the notification queue is drained promptly.
+        """
+        msg = f"for {duration}s" if duration > 0 else "indefinitely"
+        print(f"Starting continuous heart rate measurement {msg}...")
+        
+        # Mode 1: Standard measurement
+        await self._send(protocol.Packet(cmd_id=protocol.CommandID.START_HEART_RATE, payload=bytes([0x01, 0x01])))
+        
+        start_time = asyncio.get_event_loop().time()
+        
+        listener_task = asyncio.create_task(self._listener_hr(start_time, debug))
+        last_heartbeat_time = start_time
+        
+        try:
+            while True:
+                current_time = asyncio.get_event_loop().time()
+                elapsed = current_time - start_time
+                if duration > 0 and elapsed >= duration:
+                    break
+                
+                # Note: On H59_9405, sending "Continue" (0x01, 0x03) suppresses pulse readings.
+                # We stay silent to let the sensor settle.
+                await asyncio.sleep(0.5)
+
+                await asyncio.sleep(0.5)
+        finally:
+            listener_task.cancel()
+            try:
+                await listener_task
+            except asyncio.CancelledError:
+                pass
+            print("\nStopping heart rate sensor...")
+            try:
+                await self._send(protocol.Packet(cmd_id=protocol.CommandID.START_HEART_RATE, payload=bytes([0x01, 0x04])))
+            except:
+                pass
+            print("Sensor stopped.")
+
+    async def _listener_hr(self, start_time, debug: bool):
+        """Background listener for heart rate results."""
+        while True:
+            try:
+                packet = await self._wait_for_packet(timeout=1.0)
+                elapsed = asyncio.get_event_loop().time() - start_time
+                
+                if debug:
+                    target = "ACT" if packet.is_large_data else "CMD"
+                    print(f"[{elapsed:4.1f}s] DEBUG: {target} {packet.cmd_id or packet.action_id} P={packet.payload.hex()}")
+
+                # Standard logic for real-time HR in AB packets (non-large-data)
+                # Check multiple sources for pulse values
+                if not packet.is_large_data:
+                    hr_val = 0
+                    if packet.cmd_id == protocol.CommandID.REAL_TIME_HEART_RATE: # 30 / 0x1E
+                        hr_val = packet.payload[0]
+                    elif packet.cmd_id == protocol.CommandID.START_HEART_RATE: # 105 / 0x69
+                        # Offset varies by model, H59_9405 has it at payload[2]
+                        if len(packet.payload) > 2: hr_val = packet.payload[2]
+                    elif packet.cmd_id == 0x73:
+                        if len(packet.payload) > 3: hr_val = packet.payload[3]
+                    
+                    if hr_val > 0 and hr_val < 255:
+                        print(f"[{elapsed:4.1f}s] ❤️  Current Heart Rate: {hr_val} bpm")
+                        
+            except asyncio.TimeoutError:
+                continue
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                if debug:
+                    print(f"DEBUG: Listener error: {e}")
