@@ -176,3 +176,57 @@ def create_push_msg_packet(msg_type: int, content: str = "") -> Packet:
     payload[1] = 1  # Total packages (assuming 1 for simple triggers)
     payload[2] = 1  # Current package index
     payload[3:3+len(content_bytes)] = content_bytes
+    
+    return Packet(cmd_id=CommandID.PUSH_MSG, payload=bytes(payload))
+
+
+class HRAction:
+    START = 0  # Default for Mode 1
+    CONTINUE = 3
+    STOP = 4
+
+def create_start_hr_packet(mode: int = 1, action: int = HRAction.START) -> Packet:
+    """
+    Creates a packet to start heart rate measurement.
+    - mode 1: Standard manual (SIMPLE_REQ).
+    - mode 6: Real-time streaming mode.
+    - action: See HRAction class.
+    """
+    return Packet(cmd_id=CommandID.START_HEART_RATE, payload=bytes([mode & 0xFF, action & 0xFF]))
+
+
+def create_stop_hr_packet() -> Packet:
+    """Creates a packet to stop heart rate measurement."""
+    # Stop HR -> [0x04, 0x00]
+    return Packet(cmd_id=CommandID.START_HEART_RATE, payload=bytes([HRAction.STOP, 0x00]))
+
+def create_read_hr_config_packet() -> Packet:
+    """Creates a packet to read auto HR configuration."""
+    return Packet(cmd_id=CommandID.AUTO_HR_CONFIG, payload=bytes([0x01]))
+
+def create_write_hr_config_packet(enabled: bool, interval: int, start_interval: int = 5,
+                                  low_alarm: int = 0, high_alarm: int = 0) -> Packet:
+    """Creates a packet to write auto HR configuration."""
+    payload = [
+        0x02,                 # Write mode
+        1 if enabled else 2, # Enabled(1)/Disabled(2)
+        interval & 0xFF,
+        start_interval & 0xFF,
+        low_alarm & 0xFF,
+        high_alarm & 0xFF
+    ]
+    return Packet(cmd_id=CommandID.AUTO_HR_CONFIG, payload=bytes(payload))
+
+def create_get_sleep_packet(day_offset: int, start_idx: int = 0, end_idx: int = 95) -> Packet:
+    """
+    Creates a packet to request sleep details.
+    day_offset: 0 (today) to 29 (days ago).
+    start_idx/end_idx: 0 to 95 (15-minute segments).
+    """
+    payload = [
+        day_offset & 0xFF,
+        15, # Constant from APK
+        start_idx & 0xFF,
+        end_idx & 0xFF
+    ]
+    return Packet(cmd_id=CommandID.GET_SLEEP, payload=bytes(payload))

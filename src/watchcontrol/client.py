@@ -280,3 +280,83 @@ class WatchClient:
             
         return {"day": day_offset, "interval": interval, "data": hr_data}
 
+    async def set_sedentary_reminder(self, enabled: bool, interval: int = 60, 
+                                     start_h: int = 8, start_m: int = 0,
+                                     end_h: int = 21, end_m: int = 0,
+                                     week_mask: int = 0x7F):
+        """Set sedentary (long sitting) reminder."""
+        # Payload: [enable(1/2), startH, startM, endH, endM, intervalL, intervalH, weekMask]
+        payload = bytes([
+            1 if enabled else 2,
+            protocol.decimal_to_bcd(start_h),
+            protocol.decimal_to_bcd(start_m),
+            protocol.decimal_to_bcd(end_h),
+            protocol.decimal_to_bcd(end_m),
+            interval & 0xFF,
+            (interval >> 8) & 0xFF,
+            week_mask & 0xFF
+        ])
+        await self._send(protocol.Packet(cmd_id=protocol.CommandID.SET_SIT_LONG, payload=payload))
+
+    async def set_hydration_reminder(self, index: int, enabled: bool, hour: int, minute: int, week_mask: int = 0x7F):
+        """Set a hydration (drink water) reminder."""
+        # Payload: [index(0-7), enable(1/0), hourBCD, minBCD, bits for week...]
+        payload = [
+            index & 0x07,
+            1 if enabled else 0,
+            protocol.decimal_to_bcd(hour),
+            protocol.decimal_to_bcd(minute)
+        ]
+        # Add week bits as individual bytes (Monday to Sunday)
+        for i in range(7):
+            payload.append(1 if (week_mask & (1 << i)) else 0)
+            
+        await self._send(protocol.Packet(cmd_id=protocol.CommandID.SET_DRINK_WATER, payload=bytes(payload)))
+
+    async def sync_alarms(self):
+        """Fetch all alarms using the high-speed BC protocol."""
+        # Request read: [0x01]
+        await self._send(protocol.Packet(
+            is_large_data=True, 
+            action_id=protocol.ActionID.ALARM, 
+            payload=bytes([0x01])
+        ))
+        
+        packet = await self._wait_for_packet(action_id=protocol.ActionID.ALARM)
+        if not packet or len(packet.payload) < 2:
+            return []
+            
+        # Payload: [Status, Total, Beans...]
+        # Status usually 1 for SUCCESS? 
+        total = packet.payload[1]
+        alarms = []
+        
+        offset = 2
+        for _ in range(total):
+            if offset + 4 > len(packet.payload): break
+            
+            length = packet.payload[offset]
+            repeat_enable = packet.payload[offset+1]
+            minutes = packet.payload[offset+2] | (packet.payload[offset+3] << 8)
+            
+            content_len = length - 4
+            content = ""
+            if content_len > 0:
+                try:
+                    content_slice = packet.payload[offset+4 : offset+4+content_len]
+                    content = content_slice.decode("utf-8").strip("\x00")
+                except:
+                    content = "Alarm"
+                    
+            alarms.append({
+                "enabled": (repeat_enable & 0x80) != 0,
+                "week_mask": repeat_enable & 0x7F,
+                "hour": minutes // 60,
+                "minute": minutes % 60,
+                "label": content,
+                "minutes": minutes
+            })
+            offset += length
+            
+        return alarms
+
