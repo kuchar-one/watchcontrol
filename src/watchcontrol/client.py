@@ -171,3 +171,112 @@ class WatchClient:
             "high_alarm": high
         }
 
+    async def set_auto_hr_config(self, enabled: bool, interval: int, start_interval: int = 5,
+                                  low_alarm: int = 0, high_alarm: int = 0, debug: bool = False):
+        """Update automatic heart rate configuration."""
+        payload = bytes([
+            0x02,                 # Write mode
+            1 if enabled else 2,  # Enabled(1)/Disabled(2)
+            interval & 0xFF,
+            start_interval & 0xFF,
+            low_alarm & 0xFF,
+            high_alarm & 0xFF
+        ])
+        await self._send(protocol.Packet(cmd_id=protocol.CommandID.AUTO_HR_CONFIG, payload=payload))
+        return await self.get_auto_hr_config(debug=debug)
+
+    async def sync_sleep(self, day_offset: int = 0):
+        """
+        Sync sleep data for the given day offset using the high-speed BC channel.
+        0 = Today, 1 = Yesterday, etc.
+        """
+        print(f"Requesting sleep data (BC Channel) for day offset {day_offset}...")
+        # Large Data Packet: [day_offset, 15, 0, 95]
+        payload = bytes([day_offset & 0xFF, 15, 0, 95])
+        await self._send(protocol.Packet(is_large_data=True, action_id=protocol.ActionID.SLEEP_SYNC, payload=payload))
+        
+        sleep_segments = []
+        try:
+            while True:
+                packet = await self._wait_for_packet(action_id=protocol.ActionID.SLEEP_SYNC, timeout=5.0)
+                
+                # Check for "No Data" response (usually a single byte 0x00)
+                if len(packet.payload) <= 1:
+                    if not sleep_segments:
+                        print(f"No sleep records found for offset {day_offset}.")
+                    break
+                    
+                # Payload: [Year, Month, Day, TimeIndex, currentSeq, totalSeq, q1...q7]
+                if len(packet.payload) < 6:
+                    continue # Fragment or unknown
+                    
+                year = protocol.bcd_to_decimal(packet.payload[0]) + 2000
+                month = protocol.bcd_to_decimal(packet.payload[1])
+                day = protocol.bcd_to_decimal(packet.payload[2])
+                time_idx = packet.payload[3]
+                curr_seq = packet.payload[4]
+                total_seq = packet.payload[5]
+                
+                qualities = list(packet.payload[6:])
+                sleep_segments.append({
+                    "date": f"{year}-{month:02d}-{day:02d}",
+                    "time_index": time_idx,
+                    "qualities": qualities
+                })
+                
+                if curr_seq >= total_seq - 1:
+                    break
+        except asyncio.TimeoutError:
+            if not sleep_segments:
+                print("Sync timed out (no data received).")
+                return None
+            print("Sync timed out (partial data).")
+            
+        return sleep_segments
+
+    async def sync_hr_history(self, day_offset: int = 0):
+        """
+        Sync historical heart rate logs using the high-speed BC channel.
+        0 = Today, 1 = Yesterday, etc.
+        """
+        print(f"Requesting heart rate logs (BC Channel) for day offset {day_offset}...")
+        hr_data = []
+        packet_idx = 0
+        interval = 0
+        
+        try:
+            while True:
+                # Payload: [day_offset, packet_idx]
+                payload = bytes([day_offset & 0xFF, packet_idx & 0xFF])
+                await self._send(protocol.Packet(is_large_data=True, action_id=protocol.ActionID.AUTO_HR_LOG, payload=payload))
+                
+                packet = await self._wait_for_packet(action_id=protocol.ActionID.AUTO_HR_LOG, timeout=5.0)
+                
+                if len(packet.payload) <= 1:
+                    if not hr_data:
+                        print(f"No HR logs found for offset {day_offset}.")
+                    break
+
+                # Response payload: [day, interval, total_pkgs, curr_pkg, ...data]
+                if len(packet.payload) < 4:
+                    break
+                    
+                day = packet.payload[0]
+                interval = packet.payload[1]
+                total_pkgs = packet.payload[2]
+                curr_pkg = packet.payload[3]
+                
+                # Each byte in data is an HR reading
+                hr_data.extend(list(packet.payload[4:]))
+                
+                if curr_pkg >= total_pkgs - 1 or total_pkgs == 0:
+                    break
+                packet_idx = curr_pkg + 1
+                
+        except asyncio.TimeoutError:
+            if not hr_data:
+                return None
+            print("Sync timed out (partial logs).")
+            
+        return {"day": day_offset, "interval": interval, "data": hr_data}
+

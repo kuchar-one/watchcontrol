@@ -164,3 +164,15 @@ def create_find_device_packet() -> Packet:
     return Packet(cmd_id=CommandID.FIND_DEVICE, payload=bytes([0x55, 0xAA]))
 
 
+def create_push_msg_packet(msg_type: int, content: str = "") -> Packet:
+    """
+    Creates a PUSH_MSG packet (ID 114 / 0x72).
+    Payload format: [type, total_pkgs, current_pkg, ...data]
+    Max data per packet is 11 bytes.
+    """
+    content_bytes = content.encode("utf-8")[:11]
+    payload = bytearray(14)  # 16-2 = 14 bytes available
+    payload[0] = msg_type & 0xFF
+    payload[1] = 1  # Total packages (assuming 1 for simple triggers)
+    payload[2] = 1  # Current package index
+    payload[3:3+len(content_bytes)] = content_bytes
