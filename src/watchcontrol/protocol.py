@@ -131,3 +131,14 @@ def bcd_to_decimal(val: int) -> int:
 
 
 def create_set_time_packet(timestamp: datetime.datetime = None) -> Packet:
+    """
+    Creates a SET_TIME packet.
+    Payload format: [Year%100, Month, Day, Hour, Min, Sec (all BCD), Language, TimezoneOffset]
+    """
+    if timestamp is None:
+        timestamp = datetime.datetime.now()
+    
+    payload = bytearray(8)
+    payload[0] = decimal_to_bcd(timestamp.year % 100)
+    payload[1] = decimal_to_bcd(timestamp.month)
+    payload[2] = decimal_to_bcd(timestamp.day)

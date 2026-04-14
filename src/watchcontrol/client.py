@@ -85,3 +85,63 @@ class WatchClient:
     # High-level API
     # =========================================================================
 
+    async def set_time(self):
+        """Sync current system time to the watch."""
+        await self._send(protocol.create_set_time_packet())
+
+    async def get_battery(self):
+        """Fetch battery level and charging status."""
+        await self._send(protocol.Packet(cmd_id=protocol.CommandID.GET_BATTERY))
+        packet = await self._wait_for_command(protocol.CommandID.GET_BATTERY)
+        
+        # Parse payload: [level, status]
+        level = packet.payload[0]
+        charging = packet.payload[1] == 1
+        return {"level": level, "charging": charging}
+
+    async def reboot(self):
+        """Request a watch reboot."""
+        await self._send(protocol.Packet(cmd_id=protocol.CommandID.REBOOT))
+
+    async def take_picture(self):
+        """Trigger the remote camera shutter."""
+        await self._send(protocol.Packet(cmd_id=protocol.CommandID.TAKE_PICTURE))
+        
+    async def set_heart_rate(self, enabled: bool):
+        """Start or stop real-time heart rate measurement."""
+        cmd_id = protocol.CommandID.START_HEART_RATE if enabled else protocol.CommandID.STOP_HEART_RATE
+        packet = protocol.Packet(cmd_id=cmd_id)
+        await self._send(packet)
+        print(f"Heart rate {'started' if enabled else 'stopped'}.")
+
+    async def vibrate(self, duration: float = None, interval: float = 0.1):
+        """
+        Trigger vibration on the watch.
+        If duration is provided, it loops the 'Find Device' command to keep the motor active
+        at a high frequency, creating a continuous effect.
+        """
+        if duration is None:
+            packet = protocol.create_find_device_packet()
+            await self._send(packet)
+            print("Vibration (Find Device) pulse sent.")
+        else:
+            print(f"Continuous vibration for {duration}s (interval: {interval}s)...")
+            start_time = asyncio.get_event_loop().time()
+            while True:
+                elapsed = asyncio.get_event_loop().time() - start_time
+                if elapsed >= duration:
+                    break
+                
+                packet = protocol.create_find_device_packet()
+                await self._send(packet)
+                
+                # Wait for the interval or until the duration is up
+                time_to_sleep = min(interval, duration - elapsed)
+                if time_to_sleep > 0:
+                    await asyncio.sleep(time_to_sleep)
+            
+            # Use the notification trick (Hang up) to cut off the motor immediately
+            stop_packet = protocol.create_push_msg_packet(4, "Stop")
+            await self._send(stop_packet)
+            print("Vibration cut off.")
+
