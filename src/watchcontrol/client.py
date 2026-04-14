@@ -145,3 +145,29 @@ class WatchClient:
             await self._send(stop_packet)
             print("Vibration cut off.")
 
+    async def get_auto_hr_config(self, debug: bool = False):
+        """Read current automatic heart rate configuration."""
+        await self._send(protocol.Packet(cmd_id=protocol.CommandID.AUTO_HR_CONFIG, payload=bytes([0x01])))
+        packet = await self._wait_for_packet(cmd_id=protocol.CommandID.AUTO_HR_CONFIG)
+        
+        if debug:
+            print(f"DEBUG: HR Config Packet -> {packet.payload.hex()}")
+            
+        if len(packet.payload) < 4:
+             raise ValueError("Insufficient data in HR config response")
+             
+        # Payload comes back as [mode, enabled, interval, start_interval, low, high]
+        enabled = packet.payload[1] == 1
+        interval = packet.payload[2]
+        start_interval = packet.payload[3] if packet.payload[3] != 0 else 5
+        low = packet.payload[4] if len(packet.payload) > 4 else 0
+        high = packet.payload[5] if len(packet.payload) > 5 else 0
+        
+        return {
+            "enabled": enabled,
+            "interval": interval,
+            "start_interval": start_interval,
+            "low_alarm": low,
+            "high_alarm": high
+        }
+

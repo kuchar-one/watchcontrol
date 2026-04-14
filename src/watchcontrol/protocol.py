@@ -142,3 +142,25 @@ def create_set_time_packet(timestamp: datetime.datetime = None) -> Packet:
     payload[0] = decimal_to_bcd(timestamp.year % 100)
     payload[1] = decimal_to_bcd(timestamp.month)
     payload[2] = decimal_to_bcd(timestamp.day)
+    payload[3] = decimal_to_bcd(timestamp.hour)
+    payload[4] = decimal_to_bcd(timestamp.minute)
+    payload[5] = decimal_to_bcd(timestamp.second)
+    
+    # Language: 1 for English (based on initMap in SetTimeReq.java)
+    payload[6] = 1
+    
+    # Timezone: ((Offset_hours + 24) % 24) * 2 + 1
+    # For now, let's just use a simplified version or 0/UTC
+    offset_hours = timestamp.astimezone().utcoffset().total_seconds() / 3600
+    tz_val = int(((offset_hours + 24) % 24) * 2 + 1)
+    payload[7] = tz_val & 0xFF
+    
+    return Packet(cmd_id=CommandID.SET_TIME, payload=bytes(payload))
+
+
+def create_find_device_packet() -> Packet:
+    """Creates a packet to trigger vibration on the watch."""
+    # Payload is fixed [0x55, 0xAA] based on FindDeviceReq.java
+    return Packet(cmd_id=CommandID.FIND_DEVICE, payload=bytes([0x55, 0xAA]))
+
+
