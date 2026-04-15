@@ -1,0 +1,63 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "labels": [
+    "dependency"
+  ],
+  "ignoreDeps": [
+    "com.github.Freeyourgadget:greendao",
+    "com.github.PhilJay:MPAndroidChart"
+  ],
+  "packageRules": [
+    {
+      "groupName": "protobuf",
+      "matchPackageNames": [
+        "com.google.protobuf:*"
+      ]
+    },
+    {
+      "groupName": "androidx.camera",
+      "matchPackageNames": [
+        "androidx.camera:*"
+      ]
+    },
+    {
+      "groupName": "android-emojify",
+      "matchPackageNames": [
+        "com.github.wax911.android-emojify:*"
+      ]
+    },
+    {
+      "groupName": "mapsforge",
+      "matchPackageNames": [
+        "com.github.mapsforge.mapsforge:*"
+      ]
+    },
+    {
+      "description": "solarpositioning v2 needs java 17, we need to stay on v0",
+      "allowedVersions": "<2.0",
+      "matchPackageNames": [
+        "net.e175.klaus:solarpositioning"
+      ]
+    },
+    {
+      "description": "We're running a fork of the greendao v2 generator, so we must always use the corresponding core lib",
+      "allowedVersions": "<3.0",
+      "matchPackageNames": [
+        "org.greenrobot:greendao"
+      ]
+    },
+    {
+      "description": "Version pinned to the one used by upstream greenDao to avoid regressions. Only used for code generation.",
+      "matchFileNames": [
+        "GBDaoGenerator/**"
+      ],
+      "allowedVersions": "2.3.23",
+      "matchPackageNames": [
+        "org.freemarker:freemarker"
+      ]
+    }
+  ]
+}
